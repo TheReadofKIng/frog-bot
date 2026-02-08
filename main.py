@@ -8,112 +8,103 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
 # --- НАСТРОЙКИ ---
-TOKEN = "8515456316:AAHSsPSEDotA30RJU-demHz5nQE1tPlrACI" #твой токен должен быть тут
+TOKEN = "8515456316:AAHSsPSEDotA30RJU-demHz5nQE1tPlrACI" 
 ADMIN_ID = 6420881795 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# База данных (в оперативной памяти)
-users = {}
-families = {}
-active_swamps = set()
-last_work = {}
+users, families, last_work = {}, {}, {}
 
-CARDS = ["🐸 Новичок", "🌿 Прыгунья", "💧 Капля", "🦟 Ловец", "🪵 Хранитель", "🍃 Лист", 
-         "🎭 Артист", "⚔️ Рыцарь", "🧙 Алхимик", "🌑 Ночной", "💎 Изумруд", "✨ Патриарх"]
+# Словарь карточек
+CARDS_DB = {
+    1: "🐸 Новичок", 2: "🌿 Прыгунья", 3: "💧 Капля", 4: "🦟 Ловец",
+    5: "🪵 Хранитель", 6: "🍃 Лист", 7: "🎭 Артист", 8: "⚔️ Рыцарь",
+    9: "🧙 Алхимик", 10: "🌑 Ночной", 11: "💎 Изумруд", 12: "✨ Патриарх"
+}
 
-# --- СИСТЕМНЫЕ ФУНКЦИИ ---
 def get_u(uid, name="Жаба"):
     uid = int(uid)
     if uid not in users:
-        users[uid] = {"n": name, "f": 50, "d": 0, "c": [], "b": False, "fid": None}
+        users[uid] = {"n": name, "f": 50, "c": [], "b": False, "fid": None}
     u = users[uid]
-    
-    if uid == ADMIN_ID:
-        u["r"] = "👑 Бог Священного Болота"
+    if uid == ADMIN_ID: u["r"] = "👑 Бог Священного Болота"
     else:
         val = families[u["fid"]]["f"] if u["fid"] else u["f"]
         u["r"] = "Икринка" if val < 100 else "Болотная Жаба" if val < 1000 else "Патриарх Болота"
     return u
 
 def get_bal(u):
-    if u["fid"] and u["fid"] in families:
-        return families[u["fid"]]["f"]
+    if u["fid"] and u["fid"] in families: return families[u["fid"]]["f"]
     return u["f"]
 
 def add_f(u, amt):
-    if u["fid"] and u["fid"] in families:
-        families[u["fid"]]["f"] += amt
-    else:
-        u["f"] += amt
+    if u["fid"] and u["fid"] in families: families[u["fid"]]["f"] += amt
+    else: u["f"] += amt
 
-# --- КОМАНДЫ ---
+# --- НОВАЯ КОМАНДА: ВЫДАТЬ ВСЕ КАРТЫ СРАЗУ ---
+@dp.message(Command("give_all_cards"))
+async def give_all(m: types.Message):
+    if m.from_user.id != ADMIN_ID:
+        return await m.reply("❌ Только Бог может раздавать все карты!")
+    
+    try:
+        args = m.text.split()
+        if len(args) < 2:
+            return await m.reply("⚠ Пиши: `/give_all_cards [ID]` или `/give_all_cards me`")
+        
+        target_id = ADMIN_ID if args[1] == "me" else int(args[1])
+        u = get_u(target_id)
+        
+        # Добавляем только те карты, которых еще нет
+        added_count = 0
+        for card_name in CARDS_DB.values():
+            if card_name not in u["c"]:
+                u["c"].append(card_name)
+                added_count += 1
+        
+        await m.answer(f"🃏 Полная коллекция собрана! Жабе {u['n']} выдано {added_count} новых карт. Всего в сумме: 12/12.")
+            
+    except ValueError:
+        await m.reply("⚠ Ошибка в ID! Введи цифры или 'me'.")
+
+# --- КОМАНДА ВЫДАЧИ ОДНОЙ КАРТЫ ПО ID ---
+@dp.message(Command("give_card"))
+async def give_card(m: types.Message):
+    if m.from_user.id != ADMIN_ID: return
+    try:
+        args = m.text.split()
+        card_id, target_id = int(args[1]), (ADMIN_ID if args[2] == "me" else int(args[2]))
+        if card_id not in CARDS_DB: return await m.reply("❌ ID карты от 1 до 12!")
+        u = get_u(target_id)
+        card_name = CARDS_DB[card_id]
+        if card_name not in u["c"]:
+            u["c"].append(card_name)
+            await m.answer(f"🎁 Выдана карта: {card_name} для {u['n']}")
+    except: await m.reply("⚠ Формат: `/give_card [ID_карты] [ID_юзера]`")
+
+# --- ОСТАЛЬНЫЕ КОМАНДЫ ---
 @dp.message(Command("start"))
 async def st(m: types.Message):
     get_u(m.from_user.id, m.from_user.full_name)
-    await m.answer("🟢 Бот запущен!\n/me — профиль\n/work — работа\n/marry — свадьба (реплаем)")
+    await m.answer("🟢 Бот готов!\n/give_all_cards me — получить все карты (для тебя)")
 
 @dp.message(Command("me"))
 async def profile(m: types.Message):
     u = get_u(m.from_user.id, m.from_user.full_name)
-    badge = " ⭐" if u["b"] else ""
-    fam = " ❤️ В браке" if u["fid"] else ""
-    await m.reply(f"👤 {u['n']}{badge}{fam}\n🦟 Мух: {get_bal(u)}\n🧬 Ранг: {u['r']}")
+    await m.reply(f"👤 {u['n']}\n🦟 Мух: {get_bal(u)}\n🧬 Ранг: {u['r']}\n🃏 Карт: {len(u['c'])}/12")
 
-@dp.message(Command("work"))
-async def work(m: types.Message):
-    uid = m.from_user.id
-    if uid in last_work and time.time() - last_work[uid] < 600:
-        return await m.reply("⏳ Отдохни 10 минут!")
-    
-    u = get_u(uid, m.from_user.full_name)
-    rew = random.randint(20, 60)
-    add_f(u, rew)
-    last_work[uid] = time.time()
-    await m.reply(f"🛠 Поймано {rew} мух!")
+@dp.message(Command("cards"))
+async def my_cards(m: types.Message):
+    u = get_u(m.from_user.id)
+    await m.reply(f"🃏 Твоя коллекция:\n" + ("Пусто" if not u["c"] else "\n".join(u["c"])))
 
-@dp.message(Command("marry"))
-async def marry(m: types.Message):
-    if not m.reply_to_message:
-        return await m.reply("Ответь на сообщение партнера!")
-    u1, u2 = get_u(m.from_user.id), get_u(m.reply_to_message.from_user.id)
-    if u1["fid"] or u2["fid"]:
-        return await m.reply("Кто-то уже в браке!")
-    
-    kb = InlineKeyboardBuilder()
-    kb.button(text="💍 Да!", callback_data=f"ma_{m.from_user.id}_{m.reply_to_message.from_user.id}")
-    await m.answer(f"🔔 {u1['n']} предлагает союз жабе {u2['n']}!", reply_markup=kb.as_markup())
-
-@dp.callback_query(F.data.startswith("ma_"))
-async def marry_ok(c: types.CallbackQuery):
-    _, id1, id2 = c.data.split("_")
-    if c.from_user.id != int(id2): return await c.answer("Не для тебя!")
-    u1, u2 = get_u(int(id1)), get_u(int(id2))
-    fid = f"fam_{id1}"
-    families[fid] = {"f": u1["f"] + u2["f"], "m": [int(id1), int(id2)]}
-    u1["fid"] = u2["fid"] = fid
-    await c.message.edit_text(f"🎉 Свадьба состоялась!")
-
-@dp.message(Command("god_mode"))
-async def god(m: types.Message):
-    if m.from_user.id == ADMIN_ID:
-        u = get_u(ADMIN_ID)
-        if u["fid"]: families[u["fid"]]["f"] = 1000000
-        else: u["f"] = 1000000
-        await m.answer("👑 ТЫ БОГ!")
-
-# --- СЕРВЕР ДЛЯ RENDER ---
-async def handle(request):
-    return web.Response(text="Alive")
-
+# --- СЕРВЕР ---
+async def handle(request): return web.Response(text="Alive")
 async def start_webserver():
-    app = web.Application()
-    app.router.add_get("/", handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080)))
-    await site.start()
+    app = web.Application(); app.router.add_get("/", handle)
+    runner = web.AppRunner(app); await runner.setup()
+    await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 8080))).start()
 
 async def main():
     asyncio.create_task(start_webserver())
